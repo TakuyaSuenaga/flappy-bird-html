@@ -275,6 +275,7 @@ function loop() {
       if (score > bestScore) bestScore = score;
     }
   } else if (state === 'start') {
+    bgX++;
     frameCount++;
     bird.y = H/2 + Math.sin(frameCount * 0.05) * 10;
     bird.wingAngle = Math.sin(frameCount * 0.3) * 30;
@@ -298,10 +299,11 @@ function handleInput() {
     score = 0;
     pipes = [];
     bird.reset();
+    bird.jump();
   } else if (state === 'playing') {
     bird.jump();
   } else if (state === 'dead') {
-    state = 'playing';
+    state = 'start';
     frameCount = 0;
     score = 0;
     pipes = [];
