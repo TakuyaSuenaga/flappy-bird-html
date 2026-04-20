@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Flappy Bird</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    font-family: 'Arial', sans-serif;
+    color: white;
+  }
+  canvas {
+    border: 3px solid #e94560;
+    border-radius: 8px;
+    box-shadow: 0 0 30px rgba(233, 69, 96, 0.5);
+  }
+  #ui {
+    margin-top: 12px;
+    font-size: 14px;
+    color: #aaa;
+  }
+</style>
+</head>
+<body>
+<canvas id="game" width="400" height="600"></canvas>
+<div id="ui">スペース / クリック / タップ でジャンプ</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const W = canvas.width;
+const H = canvas.height;
+
+// ゲーム状態
+let state = 'start'; // start, playing, dead
+let score = 0;
+let bestScore = 0;
+let frameCount = 0;
+
+// 鳥
+const bird = {
+  x: 80,
+  y: H / 2,
+  vy: 0,
+  gravity: 0.5,
+  jumpPower: -9,
+  size: 20,
+  rotation: 0,
+  wingAngle: 0,
+  reset() {
+    this.y = H / 2;
+    this.vy = 0;
+    this.rotation = 0;
+  },
+  jump() {
+    this.vy = this.jumpPower;
+  },
+  update() {
+    this.vy += this.gravity;
+    this.y += this.vy;
+    this.rotation = Math.min(Math.max(this.vy * 3, -30), 90);
+    this.wingAngle = Math.sin(frameCount * 0.3) * 30;
+  },
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rotation * Math.PI / 180);
+
+    // 体
+    ctx.fillStyle = '#FFD700';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, this.size, this.size * 0.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#FFA500';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 翼
+    ctx.fillStyle = '#FFA500';
+    ctx.save();
+    ctx.rotate(-this.wingAngle * Math.PI / 180);
+    ctx.beginPath();
+    ctx.ellipse(-8, 4, 10, 6, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // 目
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    ctx.arc(8, -5, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    ctx.arc(10, -5, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    ctx.arc(11, -6, 1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // くちばし
+    ctx.fillStyle = '#FF6B35';
+    ctx.beginPath();
+    ctx.moveTo(16, -2);
+    ctx.lineTo(26, 1);
+    ctx.lineTo(16, 4);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  },
+  getRect() {
+    return { x: this.x - this.size * 0.7, y: this.y - this.size * 0.7,
+             w: this.size * 1.4, h: this.size * 1.4 };
+  }
+};
+
+// パイプ
+const PIPE_W = 60;
+const PIPE_GAP = 160;
+const PIPE_SPEED = 3;
+let pipes = [];
+
+function spawnPipe() {
+  const minY = 80;
+  const maxY = H - 80 - PIPE_GAP;
+  const topH = Math.random() * (maxY - minY) + minY;
+  pipes.push({ x: W + PIPE_W, topH, scored: false });
+}
+
+function updatePipes() {
+  if (frameCount % 90 === 0) spawnPipe();
+  pipes.forEach(p => { p.x -= PIPE_SPEED; });
+  pipes = pipes.filter(p => p.x > -PIPE_W);
+
+  pipes.forEach(p => {
+    if (!p.scored && p.x + PIPE_W < bird.x) {
+      p.scored = true;
+      score++;
+    }
+  });
+}
+
+function drawPipe(p) {
+  const grad1 = ctx.createLinearGradient(p.x, 0, p.x + PIPE_W, 0);
+  grad1.addColorStop(0, '#4CAF50');
+  grad1.addColorStop(0.5, '#66BB6A');
+  grad1.addColorStop(1, '#388E3C');
+
+  // 上パイプ
+  ctx.fillStyle = grad1;
+  ctx.fillRect(p.x, 0, PIPE_W, p.topH - 12);
+  ctx.fillStyle = '#2E7D32';
+  ctx.fillRect(p.x - 5, p.topH - 30, PIPE_W + 10, 30);
+
+  // 下パイプ
+  const botY = p.topH + PIPE_GAP;
+  ctx.fillStyle = grad1;
+  ctx.fillRect(p.x, botY + 12, PIPE_W, H - botY - 12);
+  ctx.fillStyle = '#2E7D32';
+  ctx.fillRect(p.x - 5, botY, PIPE_W + 10, 30);
+}
+
+function checkCollision() {
+  const b = bird.getRect();
+  if (bird.y + bird.size > H || bird.y - bird.size < 0) return true;
+  for (const p of pipes) {
+    if (b.x + b.w > p.x && b.x < p.x + PIPE_W) {
+      if (b.y < p.topH || b.y + b.h > p.topH + PIPE_GAP) return true;
+    }
+  }
+  return false;
+}
+
+// 背景
+let bgX = 0;
+function drawBG() {
+  // 空グラデーション
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#87CEEB');
+  sky.addColorStop(1, '#E0F7FA');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  // 雲
+  drawCloud(((bgX * 0.3) % (W + 200)) - 100, 80, 60);
+  drawCloud(((bgX * 0.3 + 220) % (W + 200)) - 100, 150, 40);
+  drawCloud(((bgX * 0.3 + 80) % (W + 200)) - 100, 50, 50);
+
+  // 地面
+  ctx.fillStyle = '#8BC34A';
+  ctx.fillRect(0, H - 40, W, 40);
+  ctx.fillStyle = '#558B2F';
+  ctx.fillRect(0, H - 40, W, 8);
+}
+
+function drawCloud(x, y, r) {
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.arc(x + r * 0.8, y - r * 0.3, r * 0.7, 0, Math.PI * 2);
+  ctx.arc(x + r * 1.5, y, r * 0.6, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// スコア表示
+function drawScore() {
+  ctx.fillStyle = 'white';
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 3;
+  ctx.font = 'bold 42px Arial';
+  ctx.textAlign = 'center';
+  ctx.strokeText(score, W / 2, 70);
+  ctx.fillText(score, W / 2, 70);
+}
+
+// 画面
+function drawStart() {
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 48px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('🐦 Flappy Bird', W/2, H/2 - 60);
+  ctx.fillStyle = 'white';
+  ctx.font = '22px Arial';
+  ctx.fillText('スペース / クリック でスタート', W/2, H/2 + 10);
+  if (bestScore > 0) {
+    ctx.fillStyle = '#FFD700';
+    ctx.font = '20px Arial';
+    ctx.fillText(`ベスト: ${bestScore}`, W/2, H/2 + 50);
+  }
+}
+
+function drawDead() {
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = '#e94560';
+  ctx.font = 'bold 44px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('GAME OVER', W/2, H/2 - 80);
+
+  ctx.fillStyle = 'white';
+  ctx.font = '28px Arial';
+  ctx.fillText(`スコア: ${score}`, W/2, H/2 - 20);
+  ctx.fillStyle = '#FFD700';
+  ctx.fillText(`ベスト: ${bestScore}`, W/2, H/2 + 25);
+
+  ctx.fillStyle = 'white';
+  ctx.font = '20px Arial';
+  ctx.fillText('スペース / クリック でリスタート', W/2, H/2 + 80);
+}
+
+// メインループ
+function loop() {
+  ctx.clearRect(0, 0, W, H);
+  drawBG();
+
+  if (state === 'playing') {
+    bgX++;
+    frameCount++;
+    bird.update();
+    updatePipes();
+
+    if (checkCollision()) {
+      state = 'dead';
+      if (score > bestScore) bestScore = score;
+    }
+  } else if (state === 'start') {
+    frameCount++;
+    bird.y = H/2 + Math.sin(frameCount * 0.05) * 10;
+    bird.wingAngle = Math.sin(frameCount * 0.3) * 30;
+  }
+
+  pipes.forEach(drawPipe);
+  bird.draw();
+
+  if (state === 'playing') drawScore();
+  if (state === 'start') drawStart();
+  if (state === 'dead') { drawScore(); drawDead(); }
+
+  requestAnimationFrame(loop);
+}
+
+// 入力
+function handleInput() {
+  if (state === 'start') {
+    state = 'playing';
+    frameCount = 0;
+    score = 0;
+    pipes = [];
+    bird.reset();
+  } else if (state === 'playing') {
+    bird.jump();
+  } else if (state === 'dead') {
+    state = 'playing';
+    frameCount = 0;
+    score = 0;
+    pipes = [];
+    bird.reset();
+  }
+}
+
+document.addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); handleInput(); } });
+canvas.addEventListener('click', handleInput);
+canvas.addEventListener('touchstart', e => { e.preventDefault(); handleInput(); });
+
+loop();
+</script>
+</body>
+</html>
